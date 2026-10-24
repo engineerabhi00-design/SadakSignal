@@ -8,15 +8,16 @@ const api = axios.create({
 });
 
 export const getPotholes = async (filters = {}) => {
-  const params = new URLSearchParams();
-  if (filters.status) params.append('status', filters.status);
-  if (filters.severity) params.append('severity', filters.severity);
-  if (filters.authority_id) params.append('authority_id', filters.authority_id);
-  if (filters.zone) params.append('zone', filters.zone);
-  if (filters.search) params.append('search', filters.search);
-  params.append('limit', filters.limit || '100');
+  const params = {
+    limit: filters.limit ?? 100,
+  };
+  ['status', 'severity', 'authority_id', 'zone', 'search'].forEach((key) => {
+    if (filters[key] !== undefined && filters[key] !== null && filters[key] !== '') {
+      params[key] = filters[key];
+    }
+  });
 
-  const response = await api.get(`/api/potholes?${params.toString()}`);
+  const response = await api.get('/api/potholes', { params });
   return response.data;
 };
 
@@ -31,16 +32,12 @@ export const getPotholeStats = async () => {
 };
 
 export const detectImage = async (formData) => {
-  const response = await api.post('/api/detect/image', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
+  const response = await api.post('/api/detect/image', formData);
   return response.data;
 };
 
 export const detectVideo = async (formData) => {
-  const response = await api.post('/api/detect/video', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
+  const response = await api.post('/api/detect/video', formData, { timeout: 120000 });
   return response.data;
 };
 
@@ -54,9 +51,7 @@ export const updatePotholeStatus = async (id, status, notes = '', resolutionImag
 };
 
 export const uploadResolutionProof = async (id, formData) => {
-  const response = await api.post(`/api/potholes/${id}/resolution-proof`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
+  const response = await api.post(`/api/potholes/${id}/resolution-proof`, formData);
   return response.data;
 };
 
@@ -81,7 +76,7 @@ export const getTickets = async () => {
 };
 
 export const getPdfReportUrl = (ticketCode) => {
-  return `${API_BASE}/api/tickets/${ticketCode}/download-pdf`;
+  return `${API_BASE}/api/tickets/${encodeURIComponent(ticketCode)}/download-pdf`;
 };
 
 export const getConfigStatus = async () => {
@@ -99,7 +94,7 @@ export const getMediaUrl = (url) => {
   }
   
   // Absolute HTTP/HTTPS URLs
-  if (url.startsWith('http://') || url.startsWith('https://')) {
+  if (/^(https?:)?\/\//i.test(url)) {
     return url;
   }
 
