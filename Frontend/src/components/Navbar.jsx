@@ -5,7 +5,8 @@ import {
   BarChart3,
   Building2,
   CheckCircle2,
-  MapPin
+  MapPin,
+  Settings
 } from 'lucide-react';
 
 export default function Navbar({ activeTab, setActiveTab, stats, onOpenSettings, onOpenNewReport }) {
@@ -14,6 +15,7 @@ export default function Navbar({ activeTab, setActiveTab, stats, onOpenSettings,
     { id: 'kanban', label: 'Work List', icon: KanbanSquare },
     { id: 'analytics', label: 'Stats', icon: BarChart3 },
     { id: 'authorities', label: 'Offices', icon: Building2 },
+    { id: 'references', label: 'References', icon: MapPin },
   ];
 
   return (
@@ -22,15 +24,11 @@ export default function Navbar({ activeTab, setActiveTab, stats, onOpenSettings,
         <div className="flex items-center justify-between h-16">
           
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('detect')}>
-            <div className="w-9 h-9 rounded-lg bg-slate-800 flex items-center justify-center border border-slate-700">
-              <MapPin className="w-5 h-5 text-sky-400" />
-            </div>
-            <div>
-              <h1 className="font-semibold text-base tracking-normal text-slate-100">
-                Pothole Reporter
-              </h1>
-              <p className="text-xs text-slate-400">Road issue tracking</p>
-            </div>
+            <img
+              src="/logo-full.svg"
+              alt="SADAKSIGNAL - From Road Hazard to Verified Repair Follow-up"
+              className="h-10 w-auto max-w-[min(58vw,250px)]"
+            />
           </div>
 
           <nav className="hidden md:flex items-center gap-1">
@@ -75,6 +73,14 @@ export default function Navbar({ activeTab, setActiveTab, stats, onOpenSettings,
             >
               <Scan className="w-4 h-4" />
               <span>New Report</span>
+            </button>
+            <button
+              onClick={onOpenSettings}
+              className="p-2 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+              aria-label="System configuration"
+              title="System configuration"
+            >
+              <Settings className="w-4 h-4" />
             </button>
           </div>
         </div>

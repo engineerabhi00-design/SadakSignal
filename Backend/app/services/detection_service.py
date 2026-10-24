@@ -1,4 +1,6 @@
 import os
+import math
+import tempfile
 import cv2
 import numpy as np
 from PIL import Image, ExifTags
@@ -17,14 +19,15 @@ class DetectionService:
         try:
             from ultralytics import YOLO
             model_path = settings.MODEL_PATH
-            # If specified model file exists, load it; otherwise load standard yolov8n
             if os.path.exists(model_path):
                 self.model = YOLO(model_path)
-                print(f"[AI Model] Loaded custom pothole model from {model_path}")
+                print(f"[AI Model] Loaded configured YOLO model from {model_path}")
             else:
-                # Load yolov8n as base
                 self.model = YOLO("yolov8n.pt")
-                print("[AI Model] Loaded YOLOv8n detector with pothole feature extractor")
+                print(
+                    f"[AI Model Warning] Configured model not found at {model_path}. "
+                    "Loaded the general-purpose YOLOv8n model; it may not detect potholes."
+                )
         except Exception as e:
             print(f"[AI Model Warning] Could not load YOLO model: {e}. Using CV2 heuristic detector.")
             self.model = None
@@ -130,7 +133,9 @@ class DetectionService:
         detections.sort(key=lambda d: d["box_area_ratio"], reverse=True)
         return detections[:5]
 
-    def detect_potholes(self, image_bytes: bytes) -> Tuple[List[Dict[str, Any]], str, str]:
+    def detect_potholes(
+        self, image_bytes: bytes, save_original: bool = True
+    ) -> Tuple[List[Dict[str, Any]], str, str]:
         """Detects potholes in an image, draws annotations, and saves original & annotated media"""
         # Read image to numpy array
         nparr = np.frombuffer(image_bytes, np.uint8)
@@ -140,6 +145,7 @@ class DetectionService:
 
         h, w, _ = img_bgr.shape
         detections = []
+        inference_succeeded = False
 
         # 1. Run YOLO inference if model is available
         if self.model:
@@ -153,6 +159,11 @@ class DetectionService:
                         conf = float(box.conf[0])
                         cls_id = int(box.cls[0])
                         class_name = r.names.get(cls_id, "pothole")
+                        normalized_class_name = class_name.casefold().replace("_", " ")
+                        if not any(label in normalized_class_name for label in (
+                            "pothole", "road damage", "road defect", "pavement damage"
+                        )):
+                            continue
                         
                         # Calculate box metrics
                         bw = x2 - x1
@@ -170,11 +181,12 @@ class DetectionService:
                             "box_area_ratio": area_ratio,
                             "class_name": "pothole"
                         })
+                inference_succeeded = True
             except Exception as e:
                 print(f"[YOLO Inference Warning] {e}. Using CV fallback.")
 
-        # 2. If YOLO returned 0 detections or failed, run CV heuristic detection
-        if not detections:
+        # A successful model inference with no pothole boxes is a real negative result.
+        if not detections and not inference_succeeded:
             detections = self.detect_potholes_cv(img_bgr)
 
         # 3. If still no detections (e.g., completely flat road or simulated test), produce clean detection or empty
@@ -205,7 +217,11 @@ class DetectionService:
             )
 
         # 4. Save original and annotated images
-        orig_url = storage_service.save_bytes(image_bytes, "original_capture.jpg", "image/jpeg")
+        orig_url = (
+            storage_service.save_bytes(image_bytes, "original_capture.jpg", "image/jpeg")
+            if save_original
+            else ""
+        )
         
         _, annotated_buf = cv2.imencode(".jpg", annotated_img)
         annotated_url = storage_service.save_bytes(annotated_buf.tobytes(), "annotated_detection.jpg", "image/jpeg")
@@ -214,43 +230,64 @@ class DetectionService:
 
     def process_video(self, video_bytes: bytes, frame_interval: int = 15) -> Dict[str, Any]:
         """Processes video file/dashcam stream, sampling frames and aggregating unique potholes"""
-        temp_video_path = os.path.join(settings.UPLOAD_DIR, "temp_video.mp4")
-        with open(temp_video_path, "wb") as f:
-            f.write(video_bytes)
+        if frame_interval < 1:
+            raise ValueError("Frame interval must be at least 1")
+        if not video_bytes:
+            raise ValueError("Video file is empty")
 
-        cap = cv2.VideoCapture(temp_video_path)
-        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        
+        temp_video_path = None
+        cap = None
         all_detections = []
         frame_idx = 0
+        frames_analyzed = 0
         keyframe_urls = []
-        
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-                
-            if frame_idx % frame_interval == 0:
-                _, frame_buf = cv2.imencode(".jpg", frame)
-                dets, orig_url, ann_url = self.detect_potholes(frame_buf.tobytes())
-                if dets:
-                    timestamp_sec = round(frame_idx / fps, 2)
-                    for d in dets:
-                        d["timestamp_sec"] = timestamp_sec
-                        d["frame_idx"] = frame_idx
-                        d["annotated_url"] = ann_url
-                    all_detections.extend(dets)
-                    if ann_url not in keyframe_urls:
-                        keyframe_urls.append(ann_url)
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb", suffix=".mp4", dir=settings.UPLOAD_DIR, delete=False
+            ) as temp_video:
+                temp_video.write(video_bytes)
+                temp_video_path = temp_video.name
 
-            frame_idx += 1
-            if frame_idx > 600: # Limit processing to ~20 seconds of video for fast response
-                break
+            cap = cv2.VideoCapture(temp_video_path)
+            if not cap.isOpened():
+                raise ValueError("Unable to decode the uploaded video")
 
-        cap.release()
-        if os.path.exists(temp_video_path):
-            os.remove(temp_video_path)
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            if not math.isfinite(fps) or fps <= 0:
+                fps = 30.0
+
+            while frame_idx < 600:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                if frame_idx % frame_interval == 0:
+                    encoded, frame_buf = cv2.imencode(".jpg", frame)
+                    if not encoded:
+                        raise ValueError(f"Unable to encode video frame {frame_idx}")
+                    frames_analyzed += 1
+                    dets, _, ann_url = self.detect_potholes(
+                        frame_buf.tobytes(), save_original=False
+                    )
+                    if dets:
+                        timestamp_sec = round(frame_idx / fps, 2)
+                        for detection in dets:
+                            detection["timestamp_sec"] = timestamp_sec
+                            detection["frame_idx"] = frame_idx
+                            detection["annotated_url"] = ann_url
+                        all_detections.extend(dets)
+                        if ann_url not in keyframe_urls:
+                            keyframe_urls.append(ann_url)
+
+                frame_idx += 1
+        finally:
+            if cap is not None:
+                cap.release()
+            if temp_video_path and os.path.exists(temp_video_path):
+                os.remove(temp_video_path)
+
+        if frame_idx == 0:
+            raise ValueError("Uploaded video contains no decodable frames")
 
         # Deduplicate detections close in space & time
         highest_severity = "LOW"
@@ -260,7 +297,7 @@ class DetectionService:
                 highest_severity = d["severity"]
 
         return {
-            "total_frames_analyzed": frame_idx,
+            "total_frames_analyzed": frames_analyzed,
             "pothole_detections_count": len(all_detections),
             "highest_severity": highest_severity,
             "keyframes": keyframe_urls[:6],

@@ -7,6 +7,7 @@ Frontend/.vite/
 Backend/__pycache__/
 Backend/*/__pycache__/
 Backend/*/*/__pycache__/
+Backend/weights/
 *.py[cod]
 *$py.class
 Backend/venv/

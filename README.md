@@ -1,4 +1,4 @@
-# 🕳️ PotholeAI — Autonomous Road Defect Detection, GIS Geo-Routing & Civic Grievance Dispatch System
+# SADAKSIGNAL — Road Hazard Reporting and Tracking System
 
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI_0.109-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/Frontend-React_18.2-61DAFB.svg?logo=react&logoColor=black)](https://reactjs.org/)
@@ -344,9 +344,10 @@ Detects potholes in an uploaded image, resolves civic authority, and creates inc
 
 
 #### `POST /api/detect/video`
-Processes video clips, sampling frames at intervals and aggregating unique defect detections.
+Processes video clips by sampling frames at a configurable interval and returns model detections and annotated keyframes. This endpoint does not create civic report records.
 - **Content-Type**: `multipart/form-data`
-- **Parameters**: `file` (Video clip), `frame_interval` (int, default: 15), `latitude` (float), `longitude` (float).
+- **Parameters**: `file` (Video clip), `frame_interval` (positive int, default: 15), `latitude` (float), `longitude` (float).
+- **Limits and validation**: Up to 600 decoded frames are processed. Invalid video data returns HTTP 400; a frame interval less than 1 is rejected with HTTP 422.
 
 ---
 
@@ -468,41 +469,45 @@ Configuration is loaded from `Backend/.env`:
 HOST=0.0.0.0
 PORT=8000
 ENVIRONMENT=development
+CORS_ORIGINS=["http://localhost:5173", "http://127.0.0.1:5173"]
 
 # Database Configuration
-# Option A: PostgreSQL (Production)
-DATABASE_URL=postgresql://postgres:password@localhost:5432/pothole_detection
-# Option B: SQLite (Instant Zero-Config Demo)
-# DATABASE_URL=sqlite:///./potholes.db
+# PostgreSQL example (set the real connection string privately for production)
+# DATABASE_URL=postgresql://user:password@host:5432/pothole_detection
+# Local zero-configuration database
+DATABASE_URL=sqlite:///./potholes.db
 
 # Storage Engine (AWS S3 vs Local Uploads)
 USE_AWS_S3=false
 AWS_S3_FALLBACK_TO_LOCAL=true
-AWS_S3_BUCKET_NAME=potholes-223
+AWS_S3_BUCKET_NAME=
 AWS_S3_UPLOAD_PREFIX=potholes
 AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=your_aws_access_key
-AWS_SECRET_ACCESS_KEY=your_aws_secret_key
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
 
 # Automated Email Notification (SMTP) - Optional
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
-SMTP_USER=your_email@gmail.com
-SMTP_PASSWORD=your_app_specific_password
-NOTIFICATION_SENDER_EMAIL=alerts@civicroads.gov.in
+SMTP_USER=
+SMTP_PASSWORD=
+NOTIFICATION_SENDER_EMAIL=
 
 # AI Model Inference Thresholds
-MODEL_PATH=weights/yolov8_pothole.pt
-CONFIDENCE_THRESHOLD=0.35
+MODEL_PATH=./weights/pothole_yolov8n.pt
+CONFIDENCE_THRESHOLD=0.15
 IOU_THRESHOLD=0.45
 ```
+
+Place a compatible pothole-trained Ultralytics checkpoint at `Backend/weights/pothole_yolov8n.pt` (or set `MODEL_PATH` to its path). Model weights are excluded from Git and must be obtained separately when cloning the repository. If the configured checkpoint is missing, startup falls back to the general-purpose YOLOv8n model, which is not trained for pothole detection. The OpenCV contour heuristic is used only when model loading or inference fails; a successful model inference with no pothole boxes remains a no-detection result. Treat predictions and severity scores as advisory and review them before any real-world action.
+For production, set `CORS_ORIGINS` to the exact public frontend origin(s), and build the frontend with `VITE_API_URL` set to the public backend origin. Local disk uploads are ephemeral on most cloud hosts; configure S3-compatible storage for durable media.
 
 ---
 
 ## 9. Step-by-Step Installation & Setup
 
 ### Prerequisites
-- **Python 3.10+** (verify with `python --version` or `py -3.10 --version`)
+- **Python 3.10+** (verify with `python --version` or `py --list`)
 - **Node.js 18+** & **npm** (verify with `node -v` and `npm -v`)
 - (Optional) **PostgreSQL 14+** running locally, or use SQLite.
 
@@ -510,31 +515,28 @@ IOU_THRESHOLD=0.45
 
 ### Step 1: Clone the Repository
 ```bash
-git clone https://github.com/mr-rahulmahto/Food-Management-System.git "Pothole Detection and Reporting System"
-cd "Pothole Detection and Reporting System"
+git clone https://github.com/mr-rahulmahto/Pothole-Detection-and-Reporting-System.git
+cd Pothole-Detection-and-Reporting-System
 ```
 
 ---
 
 ### Step 2: Backend Setup & Launch
 ```bash
-# Navigate to Backend folder
+# Navigate to Backend folder from the repository root
 cd Backend
 
 # Create a Python virtual environment (recommended)
-py -3.10 -m venv venv
+py -3 -m venv .venv
 
-# Activate virtual environment:
-# On Windows:
-.\venv\Scripts\activate
-# On Linux/macOS:
-source venv/bin/activate
+# Create local configuration only if it does not already exist
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
 
 # Install all required Python dependencies
-pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 
 # Start the FastAPI backend server
-py -3.10 run.py
+.\.venv\Scripts\python.exe run.py
 ```
 - API Server: **`http://localhost:8000`**
 - Interactive Swagger API Documentation: **`http://localhost:8000/docs`**
@@ -547,8 +549,8 @@ Open a second terminal window:
 # Navigate to Frontend folder
 cd Frontend
 
-# Install node dependencies
-npm install
+# Install the locked node dependencies
+npm ci
 
 # Start the Vite development server
 npm run dev
@@ -560,20 +562,21 @@ npm run dev
 ## 10. Automated Testing & Quality Assurance
 
 ### Run Backend API Test Suite
-The project contains an automated verification script that tests all API routes, AI detection, database transactions, and PDF compilation:
+The project contains a smoke/integration script for the main backend flows:
 
 ```bash
 cd Backend
-py -3.10 test_backend.py
+.\.venv\Scripts\python.exe test_backend.py
 ```
 
 **Validated Test Cases**:
-1. ✅ **Root & Healthcheck**: Verifies API status and storage modes.
-2. ✅ **Civic Authorities**: Validates retrieval of registered municipal divisions.
-3. ✅ **Potholes Listing & Multi-criteria Filtering**: Verifies status, severity, and zone filters.
-4. ✅ **Stats KPI Aggregation**: Verifies resolution rates and authority breakdowns.
-5. ✅ **Official PDF Generation**: Generates and checks incident report PDF byte streams.
-6. ✅ **GIS Geo-Routing Lookup**: Verifies GPS coordinate geofencing to authorities.
+1. **Root, configuration, authorities, pothole list, and statistics** endpoints.
+2. **GIS geo-routing** from GPS coordinates to the seeded authority directory.
+3. **Blank-image handling** does not fabricate a pothole report.
+4. **Detected-image reporting**, status transition, and cleanup.
+5. **PDF report generation** for a reported pothole.
+
+Video uploads, browser webcam access, live SMTP delivery, and cloud S3 connectivity require their respective media, browser permissions, credentials, or cloud configuration and are not covered by this local smoke script.
 
 ### Run Frontend Production Build Check
 ```bash

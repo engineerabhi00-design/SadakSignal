@@ -6,6 +6,7 @@ import AnalyticsDashboard from './components/AnalyticsDashboard';
 import AuthorityDirectory from './components/AuthorityDirectory';
 import PotholeDetailModal from './components/PotholeDetailModal';
 import SettingsModal from './components/SettingsModal';
+import PotholeReferences from './components/PotholeReferences';
 import { getPotholes, getAuthorities, getPotholeStats } from './services/api';
 
 export default function App() {
@@ -92,6 +93,8 @@ export default function App() {
             potholes={potholes}
           />
         )}
+
+        {activeTab === 'references' && <PotholeReferences />}
       </main>
 
       {/* Modals */}

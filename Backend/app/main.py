@@ -4,8 +4,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.database import engine, Base
+from app.database import engine, Base, SessionLocal
+from app.models.authority import CivicAuthority
 from app.routes import detection_router, pothole_router, authority_router, ticket_router
+from app.services.authority_service import GEOFENCE_ZONES
 
 app = FastAPI(
     title="Pothole Detection & Civic Reporting System API",
@@ -34,12 +36,27 @@ app.include_router(ticket_router)
 
 @app.on_event("startup")
 def startup_event():
-    """Initializes database tables on startup"""
-    try:
-        Base.metadata.create_all(bind=engine)
-        print("[Startup] Database tables verified/created successfully.")
-    except Exception as e:
-        print(f"[Startup Error] Table initialization note: {e}")
+    """Initializes database tables and the built-in jurisdiction directory."""
+    Base.metadata.create_all(bind=engine)
+
+    with SessionLocal() as db:
+        for zone in GEOFENCE_ZONES.values():
+            exists = db.query(CivicAuthority.id).filter(
+                CivicAuthority.code == zone["code"]
+            ).first()
+            if exists:
+                continue
+
+            db.add(CivicAuthority(
+                name=zone["name"],
+                code=zone["code"],
+                full_name=zone["name"],
+                contact_email=zone["email"],
+                contact_phone=zone["phone"],
+                sla_hours=zone["sla_hours"],
+                jurisdiction_type=zone["type"],
+            ))
+        db.commit()
 
 @app.get("/")
 def root():
@@ -56,13 +73,13 @@ def root():
 def get_config_status():
     """Returns the current database & cloud storage connection status"""
     is_postgres = settings.DATABASE_URL.startswith("postgresql")
-    is_s3_ready = bool(settings.AWS_S3_BUCKET_NAME and settings.AWS_ACCESS_KEY_ID)
-    
+    is_s3_ready = bool(settings.USE_AWS_S3 and settings.AWS_S3_BUCKET_NAME)
+    database_scheme = settings.DATABASE_URL.partition("://")[0]
+
     return {
         "database_type": "PostgreSQL" if is_postgres else "SQLite (Local/Demo)",
-        "database_url_masked": settings.DATABASE_URL[:18] + "..." if len(settings.DATABASE_URL) > 18 else settings.DATABASE_URL,
+        "database_url_masked": f"{database_scheme}://***" if database_scheme else "***",
         "aws_s3_configured": is_s3_ready,
         "aws_s3_bucket": settings.AWS_S3_BUCKET_NAME or "Not Configured (Using Local Uploads)",
-        "upload_directory": settings.UPLOAD_DIR,
         "supported_authorities": ["MCD North", "MCD South", "MCD East", "NDMC", "PWD Delhi", "NHAI", "DDA", "BBMP"]
     }

@@ -42,30 +42,29 @@ async def detect_image(
         final_lat = latitude if latitude is not None else exif_lat
         final_lng = longitude if longitude is not None else exif_lng
         
-        # If no GPS provided and no EXIF, fallback to a realistic Delhi NCR coordinate with small variation
-        if final_lat is None or final_lng is None:
-            # Default around Central/South Delhi
-            base_lats = [28.6139, 28.5355, 28.7041, 28.6289, 28.5672]
-            base_lngs = [77.2090, 77.2610, 77.1025, 77.2065, 77.2100]
-            idx = random.randint(0, len(base_lats) - 1)
-            final_lat = round(base_lats[idx] + random.uniform(-0.02, 0.02), 5)
-            final_lng = round(base_lngs[idx] + random.uniform(-0.02, 0.02), 5)
-
-        # 3. Reverse geocode location
-        loc_details = authority_service.reverse_geocode(final_lat, final_lng)
-        resolved_road_type = road_type or loc_details.get("road_type", "URBAN_ROAD")
-
-        # 4. Resolve Civic Authority
-        responsible_authority = authority_service.resolve_authority_for_location(
-            db, final_lat, final_lng, resolved_road_type
+        has_location = final_lat is not None and final_lng is not None
+        loc_details = (
+            authority_service.reverse_geocode(final_lat, final_lng)
+            if has_location
+            else None
+        )
+        resolved_road_type = road_type or (
+            loc_details.get("road_type", "URBAN_ROAD") if loc_details else "URBAN_ROAD"
+        )
+        responsible_authority = (
+            authority_service.resolve_authority_for_location(
+                db, final_lat, final_lng, resolved_road_type
+            )
+            if has_location
+            else None
         )
 
         # Determine overall severity & confidence
-        highest_severity = "LOW"
+        highest_severity = "NONE"
         severity_rank = {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
-        max_score = 3.0
-        avg_conf = 0.85
-        max_area_ratio = 0.02
+        max_score = 0.0
+        avg_conf = 0.0
+        max_area_ratio = 0.0
 
         if detections:
             avg_conf = round(sum(d["confidence"] for d in detections) / len(detections), 2)
@@ -75,28 +74,17 @@ async def detect_image(
                     max_score = d["severity_score"]
                 if d.get("box_area_ratio", 0) > max_area_ratio:
                     max_area_ratio = d["box_area_ratio"]
-        else:
-            # If no pothole detected, synthesize a baseline detection for demo purposes
-            detections.append({
-                "x1": 150.0,
-                "y1": 250.0,
-                "x2": 450.0,
-                "y2": 480.0,
-                "confidence": 0.88,
-                "severity": "MEDIUM",
-                "severity_score": 5.5,
-                "box_area_ratio": 0.05,
-                "class_name": "pothole"
-            })
-            highest_severity = "MEDIUM"
-            max_score = 5.5
-            avg_conf = 0.88
-            max_area_ratio = 0.05
 
         pothole_record = None
 
         # 5. If auto_report is enabled, create database record and send automated notice
-        if auto_report:
+        if auto_report and detections:
+            if not has_location:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Provide latitude and longitude, or upload an image with GPS metadata, before reporting a detected pothole.",
+                )
+
             prefix = responsible_authority.code if responsible_authority else "CIVIC"
             ticket_code = f"TKT-{datetime.datetime.now().strftime('%Y%m%d')}-{prefix}-{random.randint(1000, 9999)}"
 
@@ -104,10 +92,10 @@ async def detect_image(
                 ticket_code=ticket_code,
                 latitude=final_lat,
                 longitude=final_lng,
-                address=loc_details.get("address"),
-                city=loc_details.get("city", "Delhi NCR"),
-                zone=loc_details.get("zone"),
-                road_name=loc_details.get("road_name"),
+                address=loc_details.get("address") if loc_details else None,
+                city=loc_details.get("city", "Delhi NCR") if loc_details else "Delhi NCR",
+                zone=loc_details.get("zone") if loc_details else None,
+                road_name=loc_details.get("road_name") if loc_details else None,
                 road_type=resolved_road_type,
                 confidence=avg_conf,
                 severity=highest_severity,
@@ -182,8 +170,8 @@ async def detect_image(
             "location_details": {
                 "latitude": final_lat,
                 "longitude": final_lng,
-                **loc_details
-            },
+                **loc_details,
+            } if loc_details else None,
             "suggested_authority": CivicAuthorityResponse.model_validate(responsible_authority) if responsible_authority else None,
             "pothole_record": PotholeResponse.model_validate(pothole_record) if pothole_record else None
         }
@@ -195,7 +183,7 @@ async def detect_image(
 @router.post("/video")
 async def detect_video(
     file: UploadFile = File(...),
-    frame_interval: int = Form(15),
+    frame_interval: int = Form(15, ge=1),
     latitude: Optional[float] = Form(28.6139),
     longitude: Optional[float] = Form(77.2090),
     db: Session = Depends(get_db)
@@ -206,12 +194,12 @@ async def detect_video(
         if not video_bytes:
             raise HTTPException(status_code=400, detail="Empty video file")
 
+        summary = detection_service.process_video(video_bytes, frame_interval=frame_interval)
         video_source_url = storage_service.save_bytes(
             video_bytes,
             file.filename or "dashcam_clip.mp4",
             file.content_type or "video/mp4",
         )
-        summary = detection_service.process_video(video_bytes, frame_interval=frame_interval)
         
         # Lookup authority for video location
         loc_details = authority_service.reverse_geocode(latitude, longitude)
@@ -231,5 +219,7 @@ async def detect_video(
         }
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Video processing error: {str(e)}")

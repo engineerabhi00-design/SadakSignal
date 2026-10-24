@@ -16,7 +16,6 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000",
-        "*"
     ]
 
     # PostgreSQL / SQLite URL
@@ -26,7 +25,7 @@ class Settings(BaseSettings):
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
     AWS_REGION: str = "us-east-1"
-    AWS_S3_BUCKET_NAME: str = "potholes-223"
+    AWS_S3_BUCKET_NAME: str = ""
     AWS_S3_UPLOAD_PREFIX: str = "potholes"
     USE_AWS_S3: bool = False
     AWS_S3_FALLBACK_TO_LOCAL: bool = True
@@ -39,8 +38,8 @@ class Settings(BaseSettings):
     NOTIFICATION_SENDER_EMAIL: str = "alerts@civicroads.gov.in"
 
     # AI Detection Settings
-    MODEL_PATH: str = "weights/yolov8_pothole.pt"
-    CONFIDENCE_THRESHOLD: float = 0.35
+    MODEL_PATH: str = "./weights/pothole_yolov8n.pt"
+    CONFIDENCE_THRESHOLD: float = 0.15
     IOU_THRESHOLD: float = 0.45
 
     # Storage Directory (uploads/ sits next to Backend/)
@@ -56,4 +55,3 @@ class Settings(BaseSettings):
 
 settings = Settings()
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-

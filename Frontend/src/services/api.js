@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -98,14 +98,6 @@ export const getMediaUrl = (url) => {
     return url;
   }
   
-  // If URL points to private S3 bucket, map to local upload static route
-  if (url.includes('s3.amazonaws.com') && url.includes('/potholes/')) {
-    const filename = url.split('/potholes/').pop()?.split('?')[0];
-    if (filename) {
-      return `${API_BASE}/uploads/${filename}`;
-    }
-  }
-
   // Absolute HTTP/HTTPS URLs
   if (url.startsWith('http://') || url.startsWith('https://')) {
     return url;

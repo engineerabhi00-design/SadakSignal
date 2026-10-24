@@ -8,12 +8,15 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
-BUCKET_NAME = os.getenv("AWS_S3_BUCKET_NAME", "potholes-223")
+BUCKET_NAME = os.getenv("AWS_S3_BUCKET_NAME", "").strip()
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 UPLOAD_PREFIX = os.getenv("AWS_S3_UPLOAD_PREFIX", "potholes")
 
 
 def main() -> None:
+    if not BUCKET_NAME:
+        raise SystemExit("Set AWS_S3_BUCKET_NAME in Backend/.env before testing S3.")
+
     key = f"{UPLOAD_PREFIX}/s3_upload_test_{uuid.uuid4().hex}.jpg"
     client = boto3.client("s3", region_name=AWS_REGION)
 

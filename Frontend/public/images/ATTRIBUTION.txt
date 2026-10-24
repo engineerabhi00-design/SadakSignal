@@ -1,0 +1,15 @@
+SadakSignal public pothole/road-damage reference images
+
+These are public reference photographs, not reports filed by SadakSignal.
+Each image is shared under CC BY-SA 4.0. Credit the creator, link to the
+source page and license, and share adaptations under the same license.
+
+new-delhi-broken-roads.jpg
+  Creator: Rrthakur22
+  Source: https://commons.wikimedia.org/wiki/File:Broken_Roads_in_India%27s_Capital_New_Delhi.jpg
+  License: https://creativecommons.org/licenses/by-sa/4.0/
+
+kolkata-airport-potholed-road.jpg
+  Creator: Slyronit
+  Source: https://commons.wikimedia.org/wiki/File:Potholed_road_outside_Kolkata_Airport.jpg
+  License: https://creativecommons.org/licenses/by-sa/4.0/

@@ -84,6 +84,11 @@ export default function DetectionStudio({
   const videoRef = useRef(null);
   const [webcamActive, setWebcamActive] = useState(false);
   const [webcamStream, setWebcamStream] = useState(null);
+  const detectionCount = detectionResult
+    ? mode === 'video'
+      ? detectionResult.pothole_detections_count || 0
+      : detectionResult.pothole_count || 0
+    : 0;
 
   useEffect(() => {
     if (videoRef.current && webcamStream) {
@@ -394,18 +399,26 @@ export default function DetectionStudio({
             ) : previewUrl || detectionResult?.annotated_image_url ? (
               /* Image / Detection Result Preview */
               <div className="relative aspect-video bg-slate-950 flex items-center justify-center group overflow-hidden">
-                <img
-                  src={getMediaUrl(detectionResult?.annotated_image_url || previewUrl)}
-                  alt="Detection view"
-                  className="w-full h-full object-contain"
-                  onError={(e) => {
-                    if (previewUrl && e.target.src !== previewUrl) {
-                      e.target.src = previewUrl;
-                    } else if (e.target.src !== FALLBACK_ROAD_IMAGE) {
-                      e.target.src = FALLBACK_ROAD_IMAGE;
-                    }
-                  }}
-                />
+                {mode === 'video' && previewUrl ? (
+                  <video
+                    src={previewUrl}
+                    controls
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <img
+                    src={getMediaUrl(detectionResult?.annotated_image_url || previewUrl)}
+                    alt="Detection view"
+                    className="w-full h-full object-contain"
+                    onError={(e) => {
+                      if (previewUrl && e.target.src !== previewUrl) {
+                        e.target.src = previewUrl;
+                      } else if (e.target.src !== FALLBACK_ROAD_IMAGE) {
+                        e.target.src = FALLBACK_ROAD_IMAGE;
+                      }
+                    }}
+                  />
+                )}
 
                 {/* Overlaid Badge */}
                 {detectionResult && (
@@ -414,13 +427,17 @@ export default function DetectionStudio({
                       detectionResult.highest_severity === 'CRITICAL' ? 'bg-red-500 text-white' :
                       detectionResult.highest_severity === 'HIGH' ? 'bg-orange-500 text-white' :
                       detectionResult.highest_severity === 'MEDIUM' ? 'bg-yellow-500 text-slate-950' :
-                      'bg-emerald-500 text-white'
+                      detectionCount > 0 ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-200'
                     }`}>
-                      {detectionResult.highest_severity} SEVERITY ({detectionResult.pothole_count || 1} DETECTED)
+                      {detectionCount > 0
+                        ? `${detectionResult.highest_severity} SEVERITY (${detectionCount} ${mode === 'video' ? 'FRAME DETECTIONS' : 'DETECTED'})`
+                        : 'NO POTHOLES DETECTED'}
                     </span>
-                    <span className="px-2.5 py-1 rounded-xl bg-slate-900/90 text-slate-200 text-xs font-mono border border-slate-700">
-                      {Math.round((detectionResult.average_confidence || 0.88) * 100)}% Conf
-                    </span>
+                    {mode !== 'video' && Number.isFinite(detectionResult.average_confidence) && (
+                      <span className="px-2.5 py-1 rounded-xl bg-slate-900/90 text-slate-200 text-xs font-mono border border-slate-700">
+                        {Math.round(detectionResult.average_confidence * 100)}% Conf
+                      </span>
+                    )}
                   </div>
                 )}
 
@@ -452,6 +469,30 @@ export default function DetectionStudio({
               </label>
             )}
 
+            {mode === 'video' && detectionResult?.keyframes?.length > 0 && (
+              <div className="p-4 border-t border-slate-800 space-y-2">
+                <p className="text-xs font-bold text-slate-300">Annotated keyframes</p>
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                  {detectionResult.keyframes.map((url, index) => (
+                    <a
+                      key={url}
+                      href={getMediaUrl(url)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="aspect-video rounded-lg overflow-hidden border border-slate-700"
+                      title={`Open annotated keyframe ${index + 1}`}
+                    >
+                      <img
+                        src={getMediaUrl(url)}
+                        alt={`Annotated keyframe ${index + 1}`}
+                        className="w-full h-full object-cover"
+                      />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Error Message */}
             {error && (
               <div className="p-4 bg-red-950/60 border-t border-red-900/60 text-red-300 text-xs flex items-center gap-2">
@@ -471,7 +512,7 @@ export default function DetectionStudio({
               {loading ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Analyzing Image with YOLOv8 & Calculating Severity...</span>
+                  <span>{mode === 'video' ? 'Analyzing video frames...' : 'Analyzing image with YOLOv8 & calculating severity...'}</span>
                 </>
               ) : (
                 <>
